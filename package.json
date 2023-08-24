@@ -1,0 +1,24 @@
+{
+  "name": "enmeshed-monorepo",
+  "workspaces": [
+    "@nmshd/app-runtime",
+    "@nmshd/app-web",
+    "@nmshd/connector",
+    "@nmshd/consumption",
+    "@nmshd/content",
+    "@nmshd/crypto",
+    "@nmshd/runtime",
+    "@nmshd/transport",
+    "@nmshd/connector-tui"
+  ],
+  "version": "0.0.1",
+  "scripts": {
+    "clean": "cd monosetup && cargo r -r -- -c clean",
+    "build": "cd monosetup && cargo r -r -- -c build",
+    "setup": "cd monosetup && cargo r -r -- -c init"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {}
+}
