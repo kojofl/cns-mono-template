@@ -1,0 +1,22 @@
+{
+  "tasksRunnerOptions": {
+    "default": {
+      "options": {
+        "cacheableOperations": ["build:node", "build", "build:notest"],
+        "accessToken": "Y2MwY2MwOGQtNzgyMi00ZDFmLThhODMtNGNmMmQwMWY4NWY3fHJlYWQtd3JpdGU="
+      }
+    }
+  },
+  "targetDefaults": {
+    "build": {
+      "dependsOn": ["^build"]
+    },
+    "build:node": {
+      "dependsOn": ["^build:node"]
+    },
+    "build:notest": {
+      "dependsOn": ["^build:notest"]
+    }
+  },
+  "defaultBase": "master"
+}

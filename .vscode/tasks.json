@@ -1,0 +1,82 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Setup",
+      "command": "npm run setup",
+      "type": "shell",
+      "isBackground": false,
+      "presentation": {
+        "reveal": "always"
+      }
+    },
+    {
+      "label": "Install",
+      "command": "pnpm i",
+      "type": "shell",
+      "isBackground": false,
+      "presentation": {
+        "reveal": "always"
+      }
+    },
+    {
+      "label": "Clean",
+      "command": "cd monosetup && cargo r -r -- -c clean",
+      "type": "shell",
+      "isBackground": false,
+      "presentation": {
+        "reveal": "always",
+      }
+    },
+    {
+      "label": "Build",
+      "command": "npm run build",
+      "type": "shell",
+      "isBackground": false,
+      "presentation": {
+        "reveal": "always"
+      }
+    },
+    {
+      "label": "Build:node",
+      "command": "npm run build:node",
+      "type": "shell",
+      "isBackground": false,
+      "presentation": {
+        "reveal": "always"
+      }
+    },
+    {
+      "label": "Start Connector",
+      "command": "export SYNC_ENABLED=true && docker compose -f .dev/docker-compose.local.debug.yml -f .dev/docker-compose.debug.stage.yml up bc-1",
+      "type": "shell",
+      "isBackground": true,
+      "presentation": {
+        "reveal": "always",
+        "close": false
+      },
+      "options": {
+        "cwd": "${workspaceFolder}/packages/cns-connector"
+      }
+    },
+    {
+      "label": "Connector TUI",
+      "command": "cd packages/connector-tui/ && npm run start",
+      "type": "shell",
+      "isBackground": false,
+      "presentation": {
+        "reveal": "always",
+        "close": true
+      }
+    },
+    {
+      "label": "Web App",
+      "command": "cd packages/cns-app-web/ && npm run start",
+      "type": "shell",
+      "isBackground": true,
+      "presentation": {
+        "reveal": "always"
+      }
+    }
+  ]
+}

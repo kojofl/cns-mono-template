@@ -1,9 +1,9 @@
 use std::{
     error::Error,
-    fmt::format,
     fs::{self, OpenOptions},
     io::{BufRead, BufReader, Read, Seek, Write},
-    process::Command,
+    os::unix::process::CommandExt,
+    process::{Command, Stdio},
     thread::spawn,
 };
 
@@ -84,33 +84,19 @@ fn main() {
 }
 
 fn build() -> Result<(), Box<dyn Error>> {
-    let mut handles = Vec::with_capacity(9);
-    for repo in REPOS {
-        handles.push(spawn(move || {
-            if let Err(e) = build_repo(repo.0) {
-                println!("{e}");
-            }
-        }));
-    }
-    for handle in handles {
-        handle.join().unwrap();
-    }
-    Ok(())
-}
-
-fn build_repo(dir: &'static str) -> Result<(), Box<dyn Error>> {
+    let dir = fs::canonicalize("../")?;
     if cfg!(target_os = "windows") {
         Command::new("cmd")
-            .args(["/C", &format!("npm run build")])
-            .current_dir(std::fs::canonicalize(format!("../packages/{dir}"))?)
-            .output()
-            .expect(&format!("error building {}", dir))
+            .args(["/C", &format!("npx nx run-many -t build:node")])
+            .current_dir(dir)
+            .stdout(Stdio::inherit())
+            .exec();
     } else {
         Command::new("sh")
-            .args(["-c", &format!("npm run build")])
-            .current_dir(std::fs::canonicalize(format!("../packages/{dir}"))?)
-            .output()
-            .expect(&format!("error building {}", dir))
+            .args(["-c", &format!("npx nx run-many -t build:node")])
+            .current_dir(dir)
+            .stdout(Stdio::inherit())
+            .exec();
     };
     Ok(())
 }
@@ -152,14 +138,36 @@ fn init_repo((dir, url): (&'static str, &'static str)) -> Result<(), Box<dyn Err
         Command::new("cmd")
             .args(["/C", &format!("git clone {url}")])
             .current_dir(std::fs::canonicalize(format!("../packages"))?)
-            .output()
-            .expect("no git?")
+            .spawn()
+            .expect("No git?")
+            .wait()?;
+        Command::new("cmd")
+            .args(["/C", &format!("rm -rf ./.git")])
+            .current_dir(std::fs::canonicalize(format!("../packages/{dir}"))?)
+            .spawn()
+            .expect("Failed to run delete .git")
+            .wait()?;
     } else {
         Command::new("sh")
             .args(["-c", &format!("git clone {url}")])
             .current_dir(std::fs::canonicalize(format!("../packages"))?)
-            .output()
-            .expect("no git?")
+            .spawn()
+            .expect("No git?")
+            .wait()?;
+        Command::new("sh")
+            .args([
+                "-c",
+                &format!(
+                    "rm -rf {}",
+                    std::fs::canonicalize(format!("../packages/{}/.git", dir))?
+                        .to_str()
+                        .unwrap()
+                ),
+            ])
+            .stdout(Stdio::inherit())
+            .spawn()
+            .expect("Failed to run delete .git")
+            .wait()?;
     };
     // Now that we initialized the repos we update the package.json to use the local repos for
     // building
@@ -200,17 +208,57 @@ fn init_repo((dir, url): (&'static str, &'static str)) -> Result<(), Box<dyn Err
 
 fn clean() -> Result<(), Box<dyn Error>> {
     if cfg!(target_os = "windows") {
+        let current_dir = std::fs::canonicalize(format!("../"))?;
         Command::new("cmd")
-            .args(["/C", &format!("rm -r ./packages/*")])
-            .current_dir(std::fs::canonicalize(format!("../"))?)
-            .output()
-            .expect("failed to execute process")
+            .args(["/C", &format!("rm -rf ./packages/*")])
+            .current_dir(&current_dir)
+            .stdout(Stdio::inherit())
+            .spawn()
+            .expect("Failed to run clean");
+        Command::new("cmd")
+            .args(["/C", &format!("rm -rf node_modules")])
+            .current_dir(&current_dir)
+            .stdout(Stdio::inherit())
+            .spawn()
+            .expect("Failed to run clean");
+        Command::new("cmd")
+            .args(["/C", &format!("rm -rf pnpm-lock.yaml")])
+            .current_dir(&current_dir)
+            .stdout(Stdio::inherit())
+            .spawn()
+            .expect("Failed to run clean");
+        Command::new("cmd")
+            .args(["/C", &format!("rm -rf package-lock.json")])
+            .current_dir(&current_dir)
+            .stdout(Stdio::inherit())
+            .spawn()
+            .expect("Failed to run clean");
     } else {
+        let current_dir = std::fs::canonicalize(format!("../"))?;
         Command::new("sh")
-            .args(["-c", &format!("rm -r ./packages/*")])
-            .current_dir(std::fs::canonicalize(format!("../"))?)
-            .output()
-            .expect("failed to execute process")
+            .args(["-c", &format!("rm -rf ./packages/*")])
+            .current_dir(&current_dir)
+            .stdout(Stdio::inherit())
+            .spawn()
+            .expect("Failed to run clean");
+        Command::new("sh")
+            .args(["-c", &format!("rm -rf node_modules")])
+            .current_dir(&current_dir)
+            .stdout(Stdio::inherit())
+            .spawn()
+            .expect("Failed to run clean");
+        Command::new("sh")
+            .args(["-c", &format!("rm -rf pnpm-lock.yaml")])
+            .current_dir(&current_dir)
+            .stdout(Stdio::inherit())
+            .spawn()
+            .expect("Failed to run clean");
+        Command::new("sh")
+            .args(["-c", &format!("rm -rf package-lock.json")])
+            .current_dir(&current_dir)
+            .stdout(Stdio::inherit())
+            .spawn()
+            .expect("Failed to run clean");
     };
     Ok(())
 }
