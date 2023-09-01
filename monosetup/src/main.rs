@@ -1,15 +1,16 @@
+mod mono;
 use std::{
     error::Error,
-    fs::{self, OpenOptions},
-    io::{BufRead, BufReader, Read, Seek, Write},
+    fs,
     os::unix::process::CommandExt,
     process::{Command, Stdio},
     thread::spawn,
 };
 
 use clap::{Parser, ValueEnum};
+use mono::setup_mono;
 
-static REPOS: [(&'static str, &'static str); 9] = [
+static REPOS: [(&str, &str); 9] = [
     (
         "cns-app-runtime",
         "https://github.com/nmshd/cns-app-runtime",
@@ -27,15 +28,16 @@ static REPOS: [(&'static str, &'static str); 9] = [
     ("cns-runtime", "https://github.com/nmshd/cns-runtime"),
 ];
 
-static DEPNAMES: [&'static str; 7] = [
-    "@nmshd/app-runtime",
-    "@nmshd/connector",
-    "@nmshd/consumption",
-    "@nmshd/content",
-    "@nmshd/crypto",
-    "@nmshd/runtime",
-    "@nmshd/transport",
-];
+// static DEPNAMES: [&'static str; 7] = [
+//     "@nmshd/app-runtime",
+//     "@nmshd/connector",
+//     "@nmshd/consumption",
+//     "@nmshd/content",
+//     "@nmshd/crypto",
+//     "@nmshd/runtime",
+//     "@nmshd/transport",
+// ];
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
@@ -87,13 +89,13 @@ fn build() -> Result<(), Box<dyn Error>> {
     let dir = fs::canonicalize("../")?;
     if cfg!(target_os = "windows") {
         Command::new("cmd")
-            .args(["/C", &format!("npx nx run-many -t build:node")])
+            .args(["/C", "npx nx run-many -t build:node"])
             .current_dir(dir)
             .stdout(Stdio::inherit())
             .exec();
     } else {
         Command::new("sh")
-            .args(["-c", &format!("npx nx run-many -t build:node")])
+            .args(["-c", "npx nx run-many -t build:node"])
             .current_dir(dir)
             .stdout(Stdio::inherit())
             .exec();
@@ -104,14 +106,14 @@ fn build() -> Result<(), Box<dyn Error>> {
 fn install() -> Result<(), Box<dyn Error>> {
     if cfg!(target_os = "windows") {
         Command::new("cmd")
-            .args(["/C", &format!("pnpm i")])
-            .current_dir(std::fs::canonicalize(format!("../"))?)
+            .args(["/C", "pnpm i"])
+            .current_dir(std::fs::canonicalize("../")?)
             .output()
             .expect("no npm?")
     } else {
         Command::new("sh")
-            .args(["-c", &format!("pnpm i")])
-            .current_dir(std::fs::canonicalize(format!("../"))?)
+            .args(["-c", "pnpm i"])
+            .current_dir(std::fs::canonicalize("../")?)
             .output()
             .expect("no npm?")
     };
@@ -130,6 +132,7 @@ fn initialize() -> Result<(), Box<dyn Error>> {
     for handle in handles {
         handle.join().unwrap();
     }
+    setup_mono()?;
     Ok(())
 }
 
@@ -137,12 +140,12 @@ fn init_repo((dir, url): (&'static str, &'static str)) -> Result<(), Box<dyn Err
     if cfg!(target_os = "windows") {
         Command::new("cmd")
             .args(["/C", &format!("git clone {url}")])
-            .current_dir(std::fs::canonicalize(format!("../packages"))?)
+            .current_dir(std::fs::canonicalize("../packages")?)
             .spawn()
             .expect("No git?")
             .wait()?;
         Command::new("cmd")
-            .args(["/C", &format!("rm -rf ./.git")])
+            .args(["/C", "rm -rf ./.git"])
             .current_dir(std::fs::canonicalize(format!("../packages/{dir}"))?)
             .spawn()
             .expect("Failed to run delete .git")
@@ -150,7 +153,7 @@ fn init_repo((dir, url): (&'static str, &'static str)) -> Result<(), Box<dyn Err
     } else {
         Command::new("sh")
             .args(["-c", &format!("git clone {url}")])
-            .current_dir(std::fs::canonicalize(format!("../packages"))?)
+            .current_dir(std::fs::canonicalize("../packages")?)
             .spawn()
             .expect("No git?")
             .wait()?;
@@ -171,90 +174,90 @@ fn init_repo((dir, url): (&'static str, &'static str)) -> Result<(), Box<dyn Err
     };
     // Now that we initialized the repos we update the package.json to use the local repos for
     // building
-    let mut file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(fs::canonicalize(format!(
-            "../packages/{}/package.json",
-            dir
-        ))?)?;
-    let mut byte_positions = Vec::new();
-    let mut byte = 0;
-    let reader = BufReader::new(&file);
-    for line in reader.lines() {
-        let Ok(line) = line else {
-            panic!("Error reading the package.json of {}", dir);
-        };
-        if !line.contains("name") && DEPNAMES.iter().any(|dep| line.contains(dep)) {
-            let indeces: Vec<_> = line.match_indices('"').collect();
-            byte_positions.push((byte + indeces[2].0, indeces[3].0 - indeces[2].0));
-        }
-        byte += line.len() + 1;
-    }
-    file.rewind()?;
-    let mut buffer = Vec::with_capacity(500);
-    for (start, len) in byte_positions.into_iter().rev() {
-        file.seek(std::io::SeekFrom::Start(start as u64 + 1 + len as u64))?;
-        file.read_to_end(&mut buffer)?;
-        file.rewind()?;
-        file.seek(std::io::SeekFrom::Start(start as u64))?;
-        write!(file, "\"workspace:*\"")?;
-        file.write_all(&buffer)?;
-        file.rewind()?;
-        buffer.clear();
-    }
+    // let mut file = OpenOptions::new()
+    //     .read(true)
+    //     .write(true)
+    //     .open(fs::canonicalize(format!(
+    //         "../packages/{}/package.json",
+    //         dir
+    //     ))?)?;
+    // let mut byte_positions = Vec::new();
+    // let mut byte = 0;
+    // let reader = BufReader::new(&file);
+    // for line in reader.lines() {
+    //     let Ok(line) = line else {
+    //         panic!("Error reading the package.json of {}", dir);
+    //     };
+    //     if !line.contains("name") && DEPNAMES.iter().any(|dep| line.contains(dep)) {
+    //         let indeces: Vec<_> = line.match_indices('"').collect();
+    //         byte_positions.push((byte + indeces[2].0, indeces[3].0 - indeces[2].0));
+    //     }
+    //     byte += line.len() + 1;
+    // }
+    // file.rewind()?;
+    // let mut buffer = Vec::with_capacity(500);
+    // for (start, len) in byte_positions.into_iter().rev() {
+    //     file.seek(std::io::SeekFrom::Start(start as u64 + 1 + len as u64))?;
+    //     file.read_to_end(&mut buffer)?;
+    //     file.rewind()?;
+    //     file.seek(std::io::SeekFrom::Start(start as u64))?;
+    //     write!(file, "\"workspace:*\"")?;
+    //     file.write_all(&buffer)?;
+    //     file.rewind()?;
+    //     buffer.clear();
+    // }
     Ok(())
 }
 
 fn clean() -> Result<(), Box<dyn Error>> {
     if cfg!(target_os = "windows") {
-        let current_dir = std::fs::canonicalize(format!("../"))?;
+        let current_dir = std::fs::canonicalize("../")?;
         Command::new("cmd")
-            .args(["/C", &format!("rm -rf ./packages/*")])
+            .args(["/C", "rm -rf ./packages/*"])
             .current_dir(&current_dir)
             .stdout(Stdio::inherit())
             .spawn()
             .expect("Failed to run clean");
         Command::new("cmd")
-            .args(["/C", &format!("rm -rf node_modules")])
+            .args(["/C", "rm -rf node_modules"])
             .current_dir(&current_dir)
             .stdout(Stdio::inherit())
             .spawn()
             .expect("Failed to run clean");
         Command::new("cmd")
-            .args(["/C", &format!("rm -rf pnpm-lock.yaml")])
+            .args(["/C", "rm -rf pnpm-lock.yaml"])
             .current_dir(&current_dir)
             .stdout(Stdio::inherit())
             .spawn()
             .expect("Failed to run clean");
         Command::new("cmd")
-            .args(["/C", &format!("rm -rf package-lock.json")])
+            .args(["/C", "rm -rf package-lock.json"])
             .current_dir(&current_dir)
             .stdout(Stdio::inherit())
             .spawn()
             .expect("Failed to run clean");
     } else {
-        let current_dir = std::fs::canonicalize(format!("../"))?;
+        let current_dir = std::fs::canonicalize("../")?;
         Command::new("sh")
-            .args(["-c", &format!("rm -rf ./packages/*")])
+            .args(["-c", "rm -rf ./packages/*"])
             .current_dir(&current_dir)
             .stdout(Stdio::inherit())
             .spawn()
             .expect("Failed to run clean");
         Command::new("sh")
-            .args(["-c", &format!("rm -rf node_modules")])
+            .args(["-c", "rm -rf node_modules"])
             .current_dir(&current_dir)
             .stdout(Stdio::inherit())
             .spawn()
             .expect("Failed to run clean");
         Command::new("sh")
-            .args(["-c", &format!("rm -rf pnpm-lock.yaml")])
+            .args(["-c", "rm -rf pnpm-lock.yaml"])
             .current_dir(&current_dir)
             .stdout(Stdio::inherit())
             .spawn()
             .expect("Failed to run clean");
         Command::new("sh")
-            .args(["-c", &format!("rm -rf package-lock.json")])
+            .args(["-c", "rm -rf package-lock.json"])
             .current_dir(&current_dir)
             .stdout(Stdio::inherit())
             .spawn()
