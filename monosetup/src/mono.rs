@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, error::Error, fs, collections::HashMap};
+use std::{cmp::Ordering, error::Error, fs, collections::{HashMap, VecDeque}};
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct Version {
@@ -15,6 +15,27 @@ pub enum PatchStrategy {
     Patch = 1,
     Minor = 2,
     Major = 3,
+}
+
+impl From<Version> for String {
+    fn from(value: Version) -> Self {
+        let mut s = VecDeque::with_capacity(10);
+        for mut v in [value.patch, value.minor, value.major].into_iter().filter_map(|v| {
+            v
+        }) {
+            loop {
+                let c = char::from_digit(v as u32 % 10, 10).unwrap();
+                s.push_front(c);
+                v /= 10;
+                if v == 0 {
+                    break;
+                }
+            }
+            s.push_front('.');
+        }
+        s.pop_front();
+        String::from_iter(s.iter())
+    }
 }
 
 impl TryFrom<&str> for Version {
@@ -150,19 +171,22 @@ impl Ord for Version {
 }
 
 pub fn setup_mono() -> Result<(), Box<dyn Error>> {
-    let mut dependencies: HashMap<String, (usize, Version)> = HashMap::new();
+    let mut dependencies: HashMap<&str, (usize, Version)> = HashMap::new();
     let dir = fs::canonicalize("../packages")?;
+    let mut package_deps: Vec<serde_json::Value> = Vec::with_capacity(30);
     for package in fs::read_dir(dir)? {
         let mut package = package?.path();
         package.push("package.json");
-        let mut dep: serde_json::Value = serde_json::from_reader(fs::File::open(
+        let mut v: serde_json::Value = serde_json::from_reader(fs::File::open(
                 package
                 )?)?;
-        let dep = dep.get_mut("dependencies").unwrap();
-        for (k, ver_a) in dep.as_object().unwrap() {
+        let deps = v.as_object_mut().unwrap().remove("dependencies").unwrap();
+        package_deps.push(deps);
+    }
+    for d in package_deps.iter() {
+        for (k, ver_a) in d.as_object().unwrap() {
             let ver_a: Version = Version::try_from(ver_a.as_str().unwrap())?;
-            let k = k.clone();
-            dependencies.entry(k).and_modify(|(n, ver_b)| {
+            dependencies.entry(k.as_str()).and_modify(|(n, ver_b)| {
                 *n += 1;
                 if ver_a > *ver_b {
                     *ver_b = ver_a.clone();
@@ -170,7 +194,32 @@ pub fn setup_mono() -> Result<(), Box<dyn Error>> {
             }).or_insert((1, ver_a));
         }
     }
+    let mut mono_package_json = default_package();
+    let mono_deps = mono_package_json.get_mut("dependencies").unwrap().as_object_mut().unwrap();
+    for dep in dependencies.iter().filter(|(_, (c, _))| *c >= 1) {
+        mono_deps.insert(dep.0.to_string(), String::from(dep.1.1.clone()).into());
+    }
+    println!("{}", serde_json::to_string_pretty(&mono_package_json).unwrap());
     Ok(())
+}
+
+fn default_package() -> serde_json::Value {
+    serde_json::json!({
+        "name": "monorepo",
+        "version": "0.0.1",
+        "description": "The Enmeshed Monorepo.",
+        "homepage": "https://enmeshed.eu",
+        "license": "MIT",
+        "author": "j&s-soft GmbH",
+        "files": [
+        ],
+        "scripts": {
+        },
+        "dependencies": {
+        },
+        "devDependencies": {
+        }
+    })
 }
 
 #[cfg(test)]
