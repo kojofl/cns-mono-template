@@ -225,7 +225,7 @@ fn clean() -> Result<(), Box<dyn Error>> {
             .spawn()
             .expect("Failed to run clean");
         Command::new("cmd")
-            .args(["/C", "rm -rf pnpm-lock.yaml"])
+            .args(["/C", "rm -rf package.json"])
             .current_dir(&current_dir)
             .stdout(Stdio::inherit())
             .spawn()
@@ -251,7 +251,7 @@ fn clean() -> Result<(), Box<dyn Error>> {
             .spawn()
             .expect("Failed to run clean");
         Command::new("sh")
-            .args(["-c", "rm -rf pnpm-lock.yaml"])
+            .args(["-c", "rm -rf package.json"])
             .current_dir(&current_dir)
             .stdout(Stdio::inherit())
             .spawn()
