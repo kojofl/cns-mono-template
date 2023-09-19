@@ -1,6 +1,6 @@
 # Enmeshed Monorepo
 
-This a template to setup the enmeshed system as a monorepo, this is especially usefull for implementing new features.
+This is a template to setup the enmeshed system as a monorepo, this is especially usefull for implementing new features.
 
 ## Benefits in comparison to earlier Monorepo template
 
