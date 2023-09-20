@@ -1,4 +1,6 @@
 use std::{cmp::Ordering, error::Error, fs, collections::{HashMap, VecDeque}};
+use serde::{Serialize, Deserialize};
+use crate::MERGE_DEPS;
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct Version {
@@ -191,26 +193,34 @@ pub fn setup_mono() -> Result<(), Box<dyn Error>> {
     let dir = fs::canonicalize("../packages")?;
     let mut package_deps: Vec<serde_json::Value> = Vec::with_capacity(30);
     let mut package_dev_deps: Vec<serde_json::Value> = Vec::with_capacity(30);
-    let mut workspace: Vec<String> = Vec::with_capacity(10);
-    for package in fs::read_dir(dir)? {
+    for package in fs::read_dir(dir)?.chain(fs::read_dir(fs::canonicalize("../packages/cns-connector/packages")?)?) {
         let mut package = package?.path();
         if !package.is_dir() {
             continue;
         }
-        workspace.push(package.file_name().unwrap().to_string_lossy().to_string());
         package.push("package.json");
         let mut v: serde_json::Value = serde_json::from_reader(fs::File::open(
                 package
                 )?)?;
-        let deps = v.as_object_mut().unwrap().remove("dependencies").unwrap();
-        package_deps.push(deps);
-        let dev_deps = v.as_object_mut().unwrap().remove("devDependencies").unwrap();
+        // Not all packages have dependencies
+        if let Some(mut deps) = v.as_object_mut().unwrap().remove("dependencies") {
+            // Add the package itself to the potential dependencies
+            deps.as_object_mut().unwrap().insert(v.as_object().unwrap().get("name").unwrap().to_string(), v.as_object().unwrap().get("version").unwrap().clone());
+            package_deps.push(deps);
+        }
+        let mut dev_deps = v.as_object_mut().unwrap().remove("devDependencies").unwrap();
+        // Add the package itself to the potential devDependencies
+        dev_deps.as_object_mut().unwrap().insert(v.as_object().unwrap().get("name").unwrap().to_string(), v.as_object().unwrap().get("version").unwrap().clone()); 
         package_dev_deps.push(dev_deps);
     }
     for d in package_deps.iter() {
         for (k, ver_a) in d.as_object().unwrap() {
             let ver_a: Version = Version::try_from(ver_a.as_str().unwrap())?;
-            dependencies.entry(k.as_str()).and_modify(|(n, ver_b)| {
+            let mut k = k.as_str();
+            if k.contains('"') {
+                k = &k[1..=k.len() - 2];
+            }
+            dependencies.entry(k).and_modify(|(n, ver_b)| {
                 *n += 1;
                 if ver_a > *ver_b {
                     *ver_b = ver_a.clone();
@@ -221,7 +231,11 @@ pub fn setup_mono() -> Result<(), Box<dyn Error>> {
     for d in package_dev_deps.iter() {
         for (k, ver_a) in d.as_object().unwrap() {
             let ver_a: Version = Version::try_from(ver_a.as_str().unwrap())?;
-            dev_dependencies.entry(k.as_str()).and_modify(|(n, ver_b)| {
+            let mut k = k.as_str();
+            if k.contains('"') {
+                k = &k[1..=k.len() - 2];
+            }
+            dev_dependencies.entry(k).and_modify(|(n, ver_b)| {
                 *n += 1;
                 if ver_a > *ver_b {
                     *ver_b = ver_a.clone();
@@ -230,20 +244,46 @@ pub fn setup_mono() -> Result<(), Box<dyn Error>> {
         }
     }
     let mut mono_package_json = default_package();
-    let mono_deps = mono_package_json.get_mut("dependencies").unwrap().as_object_mut().unwrap();
-    for dep in dependencies.iter().filter(|(_, (c, _))| *c >= 1) {
-        mono_deps.insert(dep.0.to_string(), String::from(dep.1.1.clone()).into());
-    }
-    let mono_dev_deps = mono_package_json.get_mut("devDependencies").unwrap().as_object_mut().unwrap();
     // Sync devDependencies that commont deps are in crate root and all others share the highest
     // version so they are compatable.
-    sync_dev_deps(mono_dev_deps, dev_dependencies)?;
-    mono_package_json.as_object_mut().unwrap().insert("workspaces".into(), workspace.into());
+    sync_deps(&mut mono_package_json, dependencies, dev_dependencies)?;
+    update_webpack_config()?;
     let package_j = serde_json::to_string_pretty(&mono_package_json).unwrap();
     let mut p = std::fs::canonicalize("../")?;
     p.push("package.json");
     std::fs::write(p, package_j)?;
     println!("Monorepo setup successful");
+    Ok(())
+}
+
+
+fn update_webpack_config() -> Result<(), Box<dyn Error>>{
+    for package in fs::read_dir(fs::canonicalize("../packages")?)? {
+        #[derive(Serialize, Deserialize, Debug)]
+        struct Config {
+            from: String,
+        }
+        let mut package = package?.path();
+        if !package.is_dir() {
+            continue;
+        }
+        package.push("webpack.config.js");
+        let Ok(config) = fs::read_to_string(&package) else {
+            continue;
+        };
+        let Some(begin) = config.find("patterns") else {
+            continue;
+        };
+        let patterns = &config[begin..];
+        let arr_begin = patterns.find('[').unwrap();
+        let arr_end = patterns.find(']').unwrap();
+        let mut config_array: Vec<Config> = json5::from_str(&patterns[arr_begin..=arr_end])?;
+        for path in config_array.iter_mut() {
+            path.from = format!("../.{}",path.from);
+        }
+        let new_webpack_config = format!("{}{}{}", &config[..begin + arr_begin], json5::to_string(&config_array)?.replace(r"\/", "/"), &config[begin + arr_end + 1..] );
+        fs::write(&package, new_webpack_config)?;
+    }
     Ok(())
 }
 
@@ -278,11 +318,13 @@ fn setup_notest_script(v: &mut serde_json::Value) -> Result<(), Box<dyn Error>> 
     Ok(())
 }
 
-fn sync_dev_deps(mono_dev_deps: &mut serde_json::Map<String, serde_json::Value>, dev_dependencies: HashMap<&str, (usize, Version)>) -> Result<(), Box<dyn Error>>{
-    for dep in dev_dependencies.iter().filter(|d| d.1.0 == 9) {
+fn sync_deps(mono_package_json: &mut serde_json::Value, dependencies: HashMap<&str, (usize, Version)>, dev_dependencies: HashMap<&str, (usize, Version)>) -> Result<(), Box<dyn Error>>{
+    let merge = MERGE_DEPS.get().unwrap();
+    let mono_dev_deps = mono_package_json.get_mut("devDependencies").unwrap().as_object_mut().unwrap();
+    for dep in dev_dependencies.iter().filter(|d| d.1.0 == 10) {
         mono_dev_deps.insert(dep.0.to_string(), String::from(dep.1.1.clone()).into());
     }
-    for package in fs::read_dir(fs::canonicalize("../packages")?)? {
+    for package in fs::read_dir(fs::canonicalize("../packages")?)?.chain(fs::read_dir(fs::canonicalize("../packages/cns-connector/packages")?)?) {
         let mut package = package?.path();
         if !package.is_dir() {
             continue;
@@ -292,11 +334,23 @@ fn sync_dev_deps(mono_dev_deps: &mut serde_json::Map<String, serde_json::Value>,
                 &package
                 )?)?;
         setup_notest_script(&mut v)?;
+        if let Some(deps) = v.as_object_mut().unwrap().get_mut("dependencies") {
+            let deps = deps.as_object_mut().unwrap();
+            // if merge flag update the dependencies as well this is optional since it might break the
+            // packages.
+            if *merge {
+                // Update all dependencies to be the highest version in the project.
+                // This ensures all packages use common latest dependencies.
+                for dep in deps.iter_mut() {
+                    *dep.1 = String::from(dependencies.get(dep.0.as_str()).unwrap().1.clone()).into();
+                }
+            }
+        }
         let dev_deps = v.as_object_mut().unwrap().get_mut("devDependencies").unwrap().as_object_mut().unwrap();
         // remove all devDependencies that are now in the package root
         dev_deps.retain(|k, _| {
             let mono_dep = dev_dependencies.get(k.as_str()).unwrap();
-            mono_dep.0 != 9
+            mono_dep.0 != 10
         });
         // Update all devDependencies to be the highest version in the project.
         // This ensures all packages use common latest dependencies.
@@ -323,8 +377,27 @@ fn default_package() -> serde_json::Value {
         "dependencies": {
         },
         "devDependencies": {
+        },
+        "workspaces": {
+            "packages": [
+                "packages/cns-crypto",
+                "packages/cns-iql",
+                "packages/cns-transport",
+                "packages/cns-content",
+                "packages/cns-consumption",
+                "packages/cns-runtime",
+                "packages/cns-connector/packages/sdk",
+                "packages/cns-connector",
+                "packages/cns-app-runtime",
+                "packages/cns-app-web"
+            ],
+            "nohoist": [
+                r#"**/@types/mocha"#,
+                r#"**/@types/jest**"#,
+                "**/@types/cacheable-request**"
+            ]
         }
-    })
+     })
 }
 
 #[cfg(test)]
@@ -358,12 +431,8 @@ mod test {
          "3.0.4",
          "1.0.1",
          "0.3.0"];
-
         let mut x: Vec<Version> = ver.into_iter().map(TryFrom::try_from).map(|r| r.unwrap()).collect();
-
         x.sort();
-
         println!("{:#?}", x)
     }
-
 }
