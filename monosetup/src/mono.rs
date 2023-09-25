@@ -374,6 +374,7 @@ fn default_package() -> serde_json::Value {
         ],
         "scripts": {
         },
+        "private": true,
         "dependencies": {
         },
         "devDependencies": {
