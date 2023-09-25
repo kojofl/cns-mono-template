@@ -13,12 +13,12 @@ This is a template to setup the enmeshed system as a monorepo, this is especiall
 # Prerequisites
 
 - [Rust]("https://www.rust-lang.org/tools/install")
-- [node including npm](https://nodejs.org/en/download)
+- [node including npm](https://nodejs.org/en/download) min version: v18.12.0
 - typescript (npm i typescript -g)
 - yarn (npm i yarn)
 
 # Setup
 
-1. (in monosetup) cargo r -r -- -c init (this clones all repos and updates their package.json to use the workspace version)
+1. (in monosetup) cargo r -r init (this clones all repos and updates their package.json to use the workspace version)
 2. yarn
-3. yarn workspaces run build:notest 
+3. yarn workspaces run build:notest
