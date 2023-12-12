@@ -1,5 +1,6 @@
 use std::{cmp::Ordering, error::Error, fs, collections::{HashMap, VecDeque}};
 use serde::{Serialize, Deserialize};
+use serde_json::Value;
 use crate::MERGE_DEPS;
 
 #[derive(PartialEq, Eq, Debug, Clone)]
@@ -193,7 +194,7 @@ pub fn setup_mono() -> Result<(), Box<dyn Error>> {
     let dir = fs::canonicalize("../packages")?;
     let mut package_deps: Vec<serde_json::Value> = Vec::with_capacity(30);
     let mut package_dev_deps: Vec<serde_json::Value> = Vec::with_capacity(30);
-    for package in fs::read_dir(dir)?.chain(fs::read_dir(fs::canonicalize("../packages/cns-connector/packages")?)?) {
+    for package in fs::read_dir(dir)? {
         let mut package = package?.path();
         if !package.is_dir() {
             continue;
@@ -203,11 +204,10 @@ pub fn setup_mono() -> Result<(), Box<dyn Error>> {
                 package
                 )?)?;
         // Not all packages have dependencies
-        if let Some(mut deps) = v.as_object_mut().unwrap().remove("dependencies") {
-            // Add the package itself to the potential dependencies
-            deps.as_object_mut().unwrap().insert(v.as_object().unwrap().get("name").unwrap().to_string(), v.as_object().unwrap().get("version").unwrap().clone());
-            package_deps.push(deps);
-        }
+        let mut deps = v.as_object_mut().unwrap().remove("dependencies").unwrap_or(Value::Object(serde_json::Map::new()));
+        // Add the package itself to the potential dependencies
+        deps.as_object_mut().unwrap().insert(v.as_object().unwrap().get("name").unwrap().to_string(), v.as_object().unwrap().get("version").unwrap().clone());
+        package_deps.push(deps);
         let mut dev_deps = v.as_object_mut().unwrap().remove("devDependencies").unwrap();
         // Add the package itself to the potential devDependencies
         dev_deps.as_object_mut().unwrap().insert(v.as_object().unwrap().get("name").unwrap().to_string(), v.as_object().unwrap().get("version").unwrap().clone()); 
@@ -324,7 +324,7 @@ fn sync_deps(mono_package_json: &mut serde_json::Value, dependencies: HashMap<&s
     for dep in dev_dependencies.iter().filter(|d| d.1.0 == 10) {
         mono_dev_deps.insert(dep.0.to_string(), String::from(dep.1.1.clone()).into());
     }
-    for package in fs::read_dir(fs::canonicalize("../packages")?)?.chain(fs::read_dir(fs::canonicalize("../packages/cns-connector/packages")?)?) {
+    for package in fs::read_dir(fs::canonicalize("../packages")?)? {
         let mut package = package?.path();
         if !package.is_dir() {
             continue;
@@ -336,6 +336,9 @@ fn sync_deps(mono_package_json: &mut serde_json::Value, dependencies: HashMap<&s
         setup_notest_script(&mut v)?;
         if let Some(deps) = v.as_object_mut().unwrap().get_mut("dependencies") {
             let deps = deps.as_object_mut().unwrap();
+            for dep in deps.iter_mut().filter(|d| d.0.starts_with("@nmshd")) {
+                *dep.1 = String::from(dependencies.get(dep.0.as_str()).unwrap().1.clone()).into();
+            }
             // if merge flag update the dependencies as well this is optional since it might break the
             // packages.
             if *merge {
@@ -381,21 +384,15 @@ fn default_package() -> serde_json::Value {
         },
         "workspaces": {
             "packages": [
-                "packages/cns-crypto",
-                "packages/cns-iql",
                 "packages/cns-transport",
                 "packages/cns-content",
                 "packages/cns-consumption",
                 "packages/cns-runtime",
-                "packages/cns-connector/packages/sdk",
-                "packages/cns-connector",
-                "packages/cns-app-runtime",
-                "packages/cns-app-web"
+                "packages/cns-app-runtime"
             ],
             "nohoist": [
                 r#"**/@types/mocha"#,
-                r#"**/@types/jest**"#,
-                "**/@types/cacheable-request**"
+                r#"**/@types/jest**"#
             ]
         }
      })

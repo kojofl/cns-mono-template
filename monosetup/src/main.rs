@@ -11,23 +11,18 @@ use mono::setup_mono;
 
 static MERGE_DEPS: OnceLock<bool> = OnceLock::new();
 
-static REPOS: [(&str, &str); 10] = [
+static REPOS: [(&str, &str); 5] = [
     (
         "cns-app-runtime",
         "https://github.com/nmshd/cns-app-runtime",
     ),
-    ("cns-app-web", "https://github.com/nmshd/cns-app-web"),
-    ("cns-connector", "https://github.com/nmshd/cns-connector"),
     (
         "cns-consumption",
         "https://github.com/nmshd/cns-consumption",
     ),
     ("cns-content", "https://github.com/nmshd/cns-content"),
-    ("cns-crypto", "https://github.com/nmshd/cns-crypto"),
     ("cns-transport", "https://github.com/nmshd/cns-transport"),
-    ("connector-tui", "https://github.com/nmshd/connector-tui"),
     ("cns-runtime", "https://github.com/nmshd/cns-runtime"),
-    ("cns-iql", "https://github.com/nmshd/cns-iql"),
 ];
 
 #[derive(Parser)]
